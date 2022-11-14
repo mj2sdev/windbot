@@ -1,81 +1,57 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, Interaction } from "discord.js";
-import config from '../config.json';
+import { Client, Collection, Events, GatewayIntentBits, Interaction, REST, Routes } from "discord.js";
+import path from 'node:path';
+import fs from 'node:fs';
+import { token, clientId, guildId } from '../config.json';
+import { Command } from "./@types";
 
-const client = new Client({ intents: GatewayIntentBits.Guilds });
+const client   = new Client({ intents: GatewayIntentBits.Guilds });
+const commands = new Collection();
 
-client.once('ready', (client: Client) => console.log(`${client.user?.username}봇이 준비되었어요.`));
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs.readdirSync(commandsPath).filter((file: string) => file.endsWith('.js'));
 
-client.on('interactionCreate', async (interaction: Interaction) => {
+// commands폴더의 명령어 로딩
+for (const file of commandFiles){
+  const filePath: string = path.join(commandsPath, file);
+  const command: Command = require(filePath).default;
+
+  if (!command.data || !command.execute) {
+    console.log(`[경고] ${filePath} 에서 data 또는 execute속성을 찾을 수 없습니다.`);
+    continue;
+  }
+  commands.set(command.data.name, command);
+}
+
+client.on(Events.InteractionCreate, async (interaction: Interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  const buttons = new ActionRowBuilder<ButtonBuilder>()
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId('RED')
-        .setLabel('1팀')
-        .setStyle(ButtonStyle.Danger)
-    )
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId('BLUE')
-        .setLabel('2팀')
-        .setStyle(ButtonStyle.Primary)
-    )
-    .addComponents(
-      new ButtonBuilder()
-        .setCustomId('DONE')
-        .setLabel('시작')
-        .setStyle(ButtonStyle.Success)
-    )
-  
-  const content = '팀을 선택하세요';
+  const command: any = commands.get(interaction.commandName);
 
-  await interaction.reply({ content, components: [buttons] });
-})
-
-const blue = new Map();
-const red  = new Map();
-
-client.on('interactionCreate', async (interaction: Interaction) => {
-  if (!interaction.isButton()) return;
-
-  blue.delete(interaction.user.id);
-  red.delete(interaction.user.id);
-
-  const team = interaction.customId === 'RED' ? red : blue;
-
-  team.set(interaction.user.id, interaction.user);
- 
-  const team_red = new EmbedBuilder()
-    .setTitle('1팀')
-    .setColor(0xe54344)
-   
-
-  const team_blue = new EmbedBuilder()
-    .setTitle('2팀')  
-    .setColor(0x5461e7)
-    
-
-  let users = blue[Symbol.iterator]();
-
-  let blue_team_list = `👥`;
-  for (const user of users) {
-    blue_team_list += `\n${user[1]}`;
+  if (!command) {
+    return console.error(`[${interaction.commandName}] 명령어를 찾을 수 없음`)
   }
 
-  team_blue.setDescription(blue_team_list);
-
-  users = red[Symbol.iterator]();
-
-  let red_team_list = `👥`;
-  for (const user of users) {
-    red_team_list += `\n${user[1]}`
+  try { await command.execute(interaction); }
+  catch(error){
+    console.error(error);
+    await interaction.reply({ content: `명령어 실행 중 오류가 발생했어요` })
   }
-  team_red.setDescription(red_team_list);
-
-  interaction.message.edit({ embeds: [team_red, team_blue] });
-
-  interaction.deferUpdate();
 })
 
-client.login(config.token);
+
+
+
+
+
+
+
+
+// 명령어 등록 부분
+const rest = new REST({ version: '10' }).setToken(token);
+
+rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+  body: commands.map((command: any) => command.data.toJSON())
+})
+
+client.once('ready', (client: Client) => console.log(`${client.user?.username}봇이 준비되었어요.`));
+client.login(token);

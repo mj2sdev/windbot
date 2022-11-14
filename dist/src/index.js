@@ -13,56 +13,42 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const discord_js_1 = require("discord.js");
-const config_json_1 = __importDefault(require("../config.json"));
+const node_path_1 = __importDefault(require("node:path"));
+const node_fs_1 = __importDefault(require("node:fs"));
+const config_json_1 = require("../config.json");
 const client = new discord_js_1.Client({ intents: discord_js_1.GatewayIntentBits.Guilds });
-client.once('ready', (client) => { var _a; return console.log(`${(_a = client.user) === null || _a === void 0 ? void 0 : _a.username}봇이 준비되었어요.`); });
-client.on('interactionCreate', (interaction) => __awaiter(void 0, void 0, void 0, function* () {
+const commands = new discord_js_1.Collection();
+const commandsPath = node_path_1.default.join(__dirname, 'commands');
+const commandFiles = node_fs_1.default.readdirSync(commandsPath).filter((file) => file.endsWith('.js'));
+// commands폴더의 명령어 로딩
+for (const file of commandFiles) {
+    const filePath = node_path_1.default.join(commandsPath, file);
+    const command = require(filePath).default;
+    if (!command.data || !command.execute) {
+        console.log(`[경고] ${filePath} 에서 data 또는 execute속성을 찾을 수 없습니다.`);
+        continue;
+    }
+    commands.set(command.data.name, command);
+}
+client.on(discord_js_1.Events.InteractionCreate, (interaction) => __awaiter(void 0, void 0, void 0, function* () {
     if (!interaction.isChatInputCommand())
         return;
-    const buttons = new discord_js_1.ActionRowBuilder()
-        .addComponents(new discord_js_1.ButtonBuilder()
-        .setCustomId('RED')
-        .setLabel('1팀')
-        .setStyle(discord_js_1.ButtonStyle.Danger))
-        .addComponents(new discord_js_1.ButtonBuilder()
-        .setCustomId('BLUE')
-        .setLabel('2팀')
-        .setStyle(discord_js_1.ButtonStyle.Primary))
-        .addComponents(new discord_js_1.ButtonBuilder()
-        .setCustomId('DONE')
-        .setLabel('시작')
-        .setStyle(discord_js_1.ButtonStyle.Success));
-    const content = '팀을 선택하세요';
-    yield interaction.reply({ content, components: [buttons] });
-}));
-const blue = new Map();
-const red = new Map();
-client.on('interactionCreate', (interaction) => __awaiter(void 0, void 0, void 0, function* () {
-    if (!interaction.isButton())
-        return;
-    blue.delete(interaction.user.id);
-    red.delete(interaction.user.id);
-    const team = interaction.customId === 'RED' ? red : blue;
-    team.set(interaction.user.id, interaction.user);
-    const team_red = new discord_js_1.EmbedBuilder()
-        .setTitle('1팀')
-        .setColor(0xe54344);
-    const team_blue = new discord_js_1.EmbedBuilder()
-        .setTitle('2팀')
-        .setColor(0x5461e7);
-    let users = blue[Symbol.iterator]();
-    let blue_team_list = `👥`;
-    for (const user of users) {
-        blue_team_list += `\n${user[1]}`;
+    const command = commands.get(interaction.commandName);
+    if (!command) {
+        return console.error(`[${interaction.commandName}] 명령어를 찾을 수 없음`);
     }
-    team_blue.setDescription(blue_team_list);
-    users = red[Symbol.iterator]();
-    let red_team_list = `👥`;
-    for (const user of users) {
-        red_team_list += `\n${user[1]}`;
+    try {
+        yield command.execute(interaction);
     }
-    team_red.setDescription(red_team_list);
-    interaction.message.edit({ embeds: [team_red, team_blue] });
-    interaction.deferUpdate();
+    catch (error) {
+        console.error(error);
+        yield interaction.reply({ content: `명령어 실행 중 오류가 발생했어요` });
+    }
 }));
-client.login(config_json_1.default.token);
+// 명령어 등록 부분
+const rest = new discord_js_1.REST({ version: '10' }).setToken(config_json_1.token);
+rest.put(discord_js_1.Routes.applicationGuildCommands(config_json_1.clientId, config_json_1.guildId), {
+    body: commands.map((command) => command.data.toJSON())
+});
+client.once('ready', (client) => { var _a; return console.log(`${(_a = client.user) === null || _a === void 0 ? void 0 : _a.username}봇이 준비되었어요.`); });
+client.login(config_json_1.token);
